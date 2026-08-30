@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "antouank.protondrive",
+  "name": "Proton Drive",
+  "version": "1.0.0",
+  "author": "antouank",
+  "license": "MIT",
+  "description": "Proton Drive login state and quick sign-in/sign-out in the Omarchy bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Proton Drive",
+    "description": "See whether you're signed in to Proton Drive and sign in or out.",
+    "category": "Files",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 60
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 10,
+        "max": 3600,
+        "step": 5,
+        "defaultValue": 60
+      }
+    ]
+  }
+}
