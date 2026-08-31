@@ -248,13 +248,16 @@ Item {
   // installed web app is the natural "default way to open it" for a
   // remote-only folder.
   //
-  // The user installed Proton Drive as a browser PWA ("Install app" in
-  // Brave), which created a real desktop entry
-  // (~/.local/share/applications/brave-fnnddiokljlbkmeppnclajginnfbffgb-Profile_5.desktop,
-  // Name=Proton Drive). Launching that by desktop-file id via `gtk-launch`
-  // opens the actual installed app window (its own icon/window class)
-  // rather than a plain tab in the regular browsing session, and stays
-  // correct if Brave's install path ever changes.
+  // If Proton Drive is installed as a browser PWA ("Install app" in a
+  // Chromium-based browser), that creates a real desktop entry
+  // (Name=Proton Drive) under ~/.local/share/applications/ or
+  // /usr/share/applications/, named after the specific browser/profile/
+  // extension-id combination that installed it - which varies per machine
+  // and per browser, so it can't be hardcoded. Search for whichever desktop
+  // file actually has Name=Proton Drive at the moment this runs, and launch
+  // that by id via `gtk-launch` - opens the real installed app window (its
+  // own icon/window class) rather than a plain browser tab. Falls straight
+  // through to a plain browser tab if no such PWA is installed.
   //
   // This always opens the Drive app root rather than a deep link to `path`,
   // because there is no CLI-exposed way to turn a path into a working
@@ -278,27 +281,21 @@ Item {
   // So: no public share is created here, and no guessed deep-link URL is
   // built. Landing on the Drive app root is a deliberate, honest fallback
   // instead of a broken or fabricated link.
-  readonly property string protonDrivePwaDesktopId: "brave-fnnddiokljlbkmeppnclajginnfbffgb-Profile_5"
-
   // Takes a path argument for call-site symmetry with browse()/download(),
   // but per the comment above there's no way to turn it into a per-folder
   // deep link - deliberately unused, named accordingly so it doesn't read as
   // an oversight.
   function openInBrowser(_path) {
-    pwaLaunchProcess.command = ["gtk-launch", protonDrivePwaDesktopId]
-    pwaLaunchProcess.running = true
-  }
-
-  Process {
-    // Falls back to a plain browser tab if the PWA desktop entry is ever
-    // missing (uninstalled, reinstalled under a different app-id, etc.) so
-    // this action never just silently does nothing.
-    id: pwaLaunchProcess
-    running: false
-    command: []
-    onExited: function(exitCode) {
-      if (exitCode !== 0) Quickshell.execDetached(["omarchy-launch-browser", "https://drive.proton.me"])
-    }
+    // Self-contained: the search-and-fall-back logic lives entirely in this
+    // one shell script rather than chained QML Process/onExited handlers,
+    // since there's nothing here that needs the result back in QML.
+    var script = "found=\"\"; " +
+      "for f in \"$HOME/.local/share/applications\"/*.desktop /usr/share/applications/*.desktop; do " +
+      "[ -f \"$f\" ] || continue; " +
+      "if grep -qix \"Name=Proton Drive\" \"$f\" 2>/dev/null; then found=$(basename \"$f\" .desktop); break; fi; " +
+      "done; " +
+      "if [ -n \"$found\" ]; then exec gtk-launch \"$found\"; else exec omarchy-launch-browser https://drive.proton.me; fi"
+    Quickshell.execDetached(["bash", "-c", script])
   }
 
   function applyList(exitCode, stdout, stderr, path) {
