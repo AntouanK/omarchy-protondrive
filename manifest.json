@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "antouank.protondrive",
   "name": "Proton Drive",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "antouank",
   "license": "MIT",
   "description": "Proton Drive login state and quick sign-in/sign-out in the Omarchy bar.",
