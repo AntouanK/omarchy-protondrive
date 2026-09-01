@@ -311,6 +311,30 @@ function parseList(exitCode, stdout, stderr, path) {
   return { ok: true, entries: entries, error: "" }
 }
 
+// The `proton-drive` CLI has no whoami/`auth status` command, so the signed-in
+// address comes from the one place the CLI does report it: the owner of the
+// user's own root folder. `filesystem info -j /my-files` returns an
+// `ownedBy.email`, with `keyAuthor.value` carrying the same address as a
+// fallback. Anything that isn't an address is treated as no answer rather
+// than shown - the ACCOUNT row falls back to its generic caption.
+function parseAccountEmail(exitCode, raw) {
+  if (Number(exitCode) !== 0) return ""
+  var text = String(raw || "").trim()
+  if (text === "") return ""
+  var parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch (e) {
+    return ""
+  }
+  if (!parsed || typeof parsed !== "object") return ""
+
+  var email = parsed.ownedBy ? parsed.ownedBy.email : ""
+  if (!email && parsed.keyAuthor && parsed.keyAuthor.ok === true) email = parsed.keyAuthor.value
+  email = String(email || "").trim()
+  return email.indexOf("@") === -1 ? "" : email
+}
+
 function lastSegment(path) {
   var parts = splitPath(path)
   return parts.length ? parts[parts.length - 1] : String(path || "")
@@ -335,6 +359,7 @@ if (typeof module !== "undefined") {
     relativeTime: relativeTime,
     entryMeta: entryMeta,
     parseList: parseList,
+    parseAccountEmail: parseAccountEmail,
     lastSegment: lastSegment
   }
 }

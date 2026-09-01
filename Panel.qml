@@ -33,7 +33,13 @@ Panel {
   readonly property color iconColor: foreground
   readonly property color barIconColor: barForeground
   readonly property string authLabel: drive.authenticated ? "Sign out of Proton Drive" : "Sign in to Proton Drive"
-  readonly property string authDetail: drive.authenticated ? "Signed in on this device" : "Opens a browser to sign in"
+  // The address, when we have it — same as the ProtonVPN widget's ACCOUNT
+  // row, where "Signed out of X" as an action needs the account it would
+  // sign out OF sitting right under it. Falls back to the generic caption
+  // while the probe is in flight, or if the CLI wouldn't say.
+  readonly property string authDetail: drive.authenticated
+    ? (drive.accountName !== "" ? drive.accountName : "Signed in on this device")
+    : "Opens a browser to sign in"
   readonly property string breadcrumbText: Model.breadcrumb(drive.currentPath)
   // Exposed as a real property (rather than referencing the `drive` id
   // directly) because the inline `component FileRow: ...` below can only

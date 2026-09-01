@@ -11,6 +11,9 @@ Item {
 
   property bool installed: false
   property bool authenticated: false
+  // The signed-in address, when we could read it. Empty whenever we're
+  // signed out, or when the CLI wouldn't tell us - see refreshAccount().
+  property string accountName: ""
   property bool refreshing: false
   property string statusText: "Checking…"
   property string actionStatus: ""
@@ -19,6 +22,7 @@ Item {
   readonly property int refreshIntervalSec: intSetting("refreshIntervalSec", 60, 10, 3600)
   readonly property bool busy: whichProcess.running || statusProcess.running || loginProcess.running || logoutProcess.running
     || browseProcess.running || downloadProcess.running || uploadPickProcess.running || uploadProcess.running || openProcess.running
+    || accountProcess.running
 
   // The proton-drive CLI keeps a local SQLite cache and does not appear to
   // tolerate two invocations running at once against it — running the
@@ -42,7 +46,7 @@ Item {
   // cache, so a status poll firing while a sign-in is mid-flow (the browser
   // step alone can take tens of seconds) reproduced the exact crash this
   // gating exists to prevent.
-  readonly property bool cliBusy: statusProcess.running || browseProcess.running || downloadProcess.running || uploadProcess.running || openProcess.running || loginProcess.running || logoutProcess.running
+  readonly property bool cliBusy: statusProcess.running || browseProcess.running || downloadProcess.running || uploadProcess.running || openProcess.running || loginProcess.running || logoutProcess.running || accountProcess.running
   // A queue, not a single slot - a single slot silently dropped an earlier
   // queued action (e.g. "download A" clicked, then "open B" clicked before A
   // got its turn) with no error or feedback, contradicting the comment below
@@ -67,6 +71,10 @@ Item {
     root._browseNow(root.currentPath)
   }
 
+  readonly property int maxAccountRetries: 10
+  property int _accountRetries: 0
+
+  Timer { id: accountProbeTimer; interval: 300; repeat: false; onTriggered: root._probeAccountNow() }
   Timer { id: statusBusyRetryTimer; interval: 400; repeat: false; onTriggered: root._retryStatusAfterBusy() }
   Timer { id: browseBusyRetryTimer; interval: 400; repeat: false; onTriggered: root._retryBrowseAfterBusy() }
 
@@ -93,6 +101,8 @@ Item {
   property string _loginError: ""
   property string _logoutOutput: ""
   property string _logoutError: ""
+  property string _accountOutput: ""
+  property string _accountError: ""
 
   // --- File browser state ---------------------------------------------
   property string currentPath: "/"
@@ -133,6 +143,7 @@ Item {
 
   function resetUnavailable(message) {
     authenticated = false
+    accountName = ""
     statusText = message
   }
 
@@ -162,6 +173,43 @@ Item {
     if (!pollWatchdog.running) pollWatchdog.start()
   }
 
+  // Fetched once per sign-in rather than on every status poll: the address
+  // cannot change while a session lasts, and this is a second CLI round-trip
+  // against the same lock-prone SQLite cache the poll already contends for.
+  // Failure is deliberately silent - not knowing the address is a cosmetic
+  // gap in one caption, not something the user can act on.
+  //
+  // Deferred through a timer rather than runWhenIdle(): its only caller is
+  // parseStatus(), which runs inside statusProcess.onExited, and a queued
+  // closure would then sit in _pendingActions unread - the _drainPending()
+  // at the end of that same handler has already been passed by the time
+  // this queues anything. The timer sidesteps the ordering entirely, and
+  // mirrors the busy-retry timers above.
+  function refreshAccount() {
+    if (!installed || !authenticated || accountName !== "") return
+    _accountRetries = 0
+    accountProbeTimer.restart()
+  }
+
+  // Re-armed while another proton-drive call holds the CLI. Bounded, because
+  // a long sign-in can hold it for tens of seconds - and giving up is safe,
+  // since the next status poll calls refreshAccount() again for as long as
+  // the address is still unknown.
+  function _probeAccountNow() {
+    if (!installed || !authenticated || accountName !== "" || accountProcess.running) return
+    if (cliBusy) {
+      if (_accountRetries < maxAccountRetries) {
+        _accountRetries++
+        accountProbeTimer.restart()
+      }
+      return
+    }
+    _accountOutput = ""
+    _accountError = ""
+    accountProcess.command = ["proton-drive", "filesystem", "info", "-j", "/my-files"]
+    accountProcess.running = true
+  }
+
   function parseStatus(exitCode, stdout, stderr) {
     if (exitCode !== 0 && Model.classifyCliFailure(stdout, stderr) === "busy") {
       if (_statusBusyRetries < maxBusyRetries) {
@@ -184,6 +232,8 @@ Item {
     authenticated = parsed.authenticated
     statusText = parsed.statusText
     lastError = parsed.ok ? "" : (parsed.lastError || "Failed to read Proton Drive status")
+    if (!authenticated) accountName = ""
+    else refreshAccount()
   }
 
   // `auth login` prints a sign-in URL to stdout and blocks until the browser
@@ -476,6 +526,19 @@ Item {
   }
 
   Process {
+    id: accountProcess
+    running: false
+    command: []
+    stdout: StdioCollector { id: accountStdout; waitForEnd: true; onStreamFinished: root._accountOutput = text }
+    stderr: StdioCollector { id: accountStderr; waitForEnd: true; onStreamFinished: root._accountError = text }
+    onExited: function(exitCode) {
+      var stdout = String(accountStdout.text || root._accountOutput || "")
+      root.accountName = Model.parseAccountEmail(exitCode, stdout)
+      root._drainPending()
+    }
+  }
+
+  Process {
     id: loginProcess
     running: false
     command: []
@@ -512,6 +575,7 @@ Item {
         root.lastError = ""
         root.actionStatus = ""
         root.authenticated = false
+        root.accountName = ""
         root.statusText = "Signed out"
       }
       delayedRefresh.restart()

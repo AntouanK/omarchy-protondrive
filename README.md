@@ -16,7 +16,8 @@ the background — it only reflects sign-in state and lets you act on it.
 - Open a file in its default app (fetches a fresh copy, then hands it to `xdg-open`)
 - Open a folder's location in the Proton Drive web app / installed PWA
 - Upload a file via a `zenity` picker (inside `/my-files` only)
-- Sign in / sign out from the panel's account row
+- See which account you're signed in as, and sign in or out, from the
+  panel's account row
 
 ## Keyboard shortcuts
 
@@ -57,3 +58,19 @@ omarchy plugin add https://github.com/AntouanK/omarchy-protondrive.git --enable 
 - `Panel.qml` - the popup UI, file browser, and keyboard navigation
 - `Icon.qml` - the bar icon (native QtQuick.Shapes, no image assets)
 - `Model.js` - pure CLI-output parsing, no side effects
+
+## Where the account address comes from
+
+The `proton-drive` CLI has no `whoami` or `auth status` command — `auth`
+only takes `login` and `logout`, and neither reports who is signed in. The
+one place the CLI does name the account is the owner of your own root
+folder, so the panel reads it from there:
+
+```
+proton-drive filesystem info -j /my-files
+```
+
+which returns an `ownedBy.email`. It is fetched once per sign-in rather
+than on every status poll — the address cannot change while a session
+lasts — and failure is silent: the account row just falls back to a
+generic "Signed in on this device".
